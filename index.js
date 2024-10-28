@@ -1,33 +1,87 @@
 const express = require('express');
-const { exec } = require('child_process');
-const app = express();
 const cors = require('cors');
-const PORT = process.env.PORT || 9860 ;
+const app = express();
+const PORT = process.env.PORT || 9860;
+const puppeteer = require('puppeteer');
+
 
 // Middleware to parse JSON requests
 app.use(express.json());
 app.use(cors());
 
+const extractFields = (data) => {
+    const userData = data.data.tweetResult.result.core.user_results.result;
+    const tweetData = data.data.tweetResult.result.legacy;
+
+    return {
+        name: userData.legacy.name,
+        time: tweetData.created_at,
+        isVerified: userData.is_blue_verified,
+        profile_image_url: userData.legacy.profile_image_url_https,
+        media: tweetData.extended_entities.media.map(media => media.media_url_https),
+        hashtags: tweetData.entities?.hashtags || [],
+        favorite_count: tweetData.favorite_count,
+        full_text: tweetData.full_text,
+        quote_count: tweetData.quote_count,
+        reply_count: tweetData.reply_count,
+        retweet_count: tweetData.retweet_count
+    };
+};
+
 // Endpoint to execute the command
-app.post('/api/getTweet', (req, res) => {
+app.post('/api/getTweet', async (req, res) => {
     const tweetUrl = req.body.tweetUrl;
+    try {
+        const browser = await puppeteer.launch({ headless: true });
+        const page = await browser.newPage();
 
-    const command = `node tweetAPI.js "${tweetUrl}"`;
+        await page.setRequestInterception(true);
 
-    exec(command, (error, stdout, stderr) => {
-        if (error) {
-            console.error(`Error executing the command: ${error.message}`);
-            return res.status(500).json({ error: error.message });
-        }
+        page.on('request', (request) => {
+            request.continue();
+        });
 
-        if (stderr) {
-            console.error(`Error: ${stderr}`);
-            return res.status(500).json({ error: stderr });
-        }
+        page.on('response', async (response) => {
+            const request = response.request();
 
-        // Send the JSON output back to the client
-        res.json({ tweetData: stdout });
-    });
+            // Skip OPTIONS (preflight) requests
+            if (request.method() === 'OPTIONS') {
+                return;
+            }
+
+            // Handle GET or POST requests
+            if (request.method() === 'GET' || request.method() === 'POST') {
+                if (request.url().includes('https://api.x.com/graphql/')) {
+                    try {
+                        // Capture and parse the response body
+                        const tweetAPIResponse = await response.json();
+                        // Send the JSON data as a response
+                        const extractedData = extractFields(tweetAPIResponse);
+                        // Send the extracted JSON data as a response
+                        res.status(200).json(extractedData);
+                    } catch (error) {
+                        console.error('Failed to load response body:', error);
+                        return null;
+                    }
+                }
+            }
+            return null;
+        });
+
+        // Navigate to the tweet page
+        await page.goto(tweetUrl, { waitUntil: 'networkidle2' });
+
+        // Wait for the tweet data to be visible (adjust as needed)
+        await page.waitForSelector('article');
+
+        // Close the browser after a delay (to ensure all requests finish)
+        setTimeout(async () => {
+            await browser.close();
+        }, 1000); // Adjust delay as needed
+    } catch (error) {
+        console.error("Error in scrapeTweetData:", error);
+        res.status(500).json({ error: "Failed to retrieve tweet data" });
+    }
 });
 
 // Start the server

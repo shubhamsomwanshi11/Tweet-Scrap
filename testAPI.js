@@ -9,7 +9,7 @@ function fetchTweetData(tweetUrl) {
             if (xhr.readyState === XMLHttpRequest.DONE) {
                 if (xhr.status === 200) {
                     const data = JSON.parse(xhr.responseText);
-                    resolve(data.tweetData); 
+                    resolve(data); 
                 } else {
                     reject(`HTTP error! status: ${xhr.status}`);
                 }
@@ -31,7 +31,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const link = document.getElementById('link').value.trim();
         fetchTweetData(link)
             .then(response => {
-                document.getElementById('jsonContainer').value = response; // Display the response in the textarea
+                document.getElementById('jsonContainer').value = JSON.stringify(response, null, 2); // Display the response in the textarea
             })
             .catch(error => {
                 console.error(error);

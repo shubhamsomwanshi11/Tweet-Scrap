@@ -46,11 +46,10 @@ async function scrapeTweetData(tweetUrl) {
         try {
           // Capture and parse the response body
           const tweetAPIResponse = await response.json();
-          const extractedJSON = extractFields(tweetAPIResponse);
-          console.log(extractedJSON);
-
+          return extractFields(tweetAPIResponse);
         } catch (error) {
           console.error('Failed to load response body:', error);
+          return null;
         }
       }
     }
@@ -68,16 +67,5 @@ async function scrapeTweetData(tweetUrl) {
     await browser.close();
   }, 1000); // Adjust delay as needed
 }
-
-const args = process.argv.slice(2);
-
-if (args.length === 0) {
-  console.error('Please provide a tweet URL as a command-line argument.');
-  process.exit(1);
-}
-
-// Extract the tweet URL from the command-line arguments
-const tweetUrl = args[0];
-
 // Scrape the tweet data
-scrapeTweetData(tweetUrl);
+module.exports = {scrapeTweetData};
