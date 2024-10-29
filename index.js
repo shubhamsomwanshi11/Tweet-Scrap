@@ -1,6 +1,6 @@
 const express = require('express');
 const cors = require('cors');
-const puppeteer = require('puppeteer');
+const { Cluster } = require('puppeteer-cluster');
 
 const app = express();
 const PORT = process.env.PORT || 9860;
@@ -29,59 +29,55 @@ const extractFields = (data) => {
     };
 };
 
+// Initialize Puppeteer Cluster
+let cluster;
+(async () => {
+    cluster = await Cluster.launch({
+        concurrency: Cluster.CONCURRENCY_CONTEXT,
+        maxConcurrency: 2, // Adjust based on server capacity
+        puppeteerOptions: {
+            headless: true,
+            args: ['--no-sandbox', '--disable-setuid-sandbox'],
+        },
+    });
+})();
+
 // Endpoint to execute the command
 app.post('/api/getTweet', async (req, res) => {
     const tweetUrl = req.body.tweetUrl;
+
     try {
-        // Launch Puppeteer with additional arguments for cloud compatibility
-        const browser = await puppeteer.launch({
-            headless: true,
-            args: ['--no-sandbox', '--disable-setuid-sandbox']
-        });
-        const page = await browser.newPage();
+        const extractedData = await cluster.execute(async ({ page }) => {
+            await page.setRequestInterception(true);
 
-        await page.setRequestInterception(true);
+            page.on('request', (request) => request.continue());
+            
+            return new Promise((resolve, reject) => {
+                page.on('response', async (response) => {
+                    const request = response.request();
 
-        page.on('request', (request) => {
-            request.continue();
-        });
+                    if (request.method() === 'OPTIONS') return;
 
-        page.on('response', async (response) => {
-            const request = response.request();
-
-            // Skip OPTIONS (preflight) requests
-            if (request.method() === 'OPTIONS') {
-                return;
-            }
-
-            // Handle GET or POST requests
-            if (request.method() === 'GET' || request.method() === 'POST') {
-                if (request.url().includes('https://api.x.com/graphql/')) {
-                    try {
-                        // Capture and parse the response body
-                        const tweetAPIResponse = await response.json();
-                        // Send the extracted JSON data as a response
-                        const extractedData = extractFields(tweetAPIResponse);
-                        res.status(200).json(extractedData);
-                    } catch (error) {
-                        console.error('Failed to load response body:', error);
-                        return null;
+                    if ((request.method() === 'GET' || request.method() === 'POST') &&
+                        request.url().includes('https://api.x.com/graphql/')
+                    ) {
+                        try {
+                            const tweetAPIResponse = await response.json();
+                            resolve(extractFields(tweetAPIResponse));
+                        } catch (error) {
+                            console.error('Failed to load response body:', error);
+                            reject('Failed to load response body');
+                        }
                     }
-                }
-            }
-            return null;
+                });
+                
+                // Navigate to the tweet page
+                page.goto(tweetUrl, { waitUntil: 'networkidle2' });
+                page.waitForSelector('article').catch(reject);
+            });
         });
 
-        // Navigate to the tweet page
-        await page.goto(tweetUrl, { waitUntil: 'networkidle2' });
-
-        // Wait for the tweet data to be visible (adjust as needed)
-        await page.waitForSelector('article');
-
-        // Close the browser after a delay (to ensure all requests finish)
-        setTimeout(async () => {
-            await browser.close();
-        }, 1000); // Adjust delay as needed
+        res.status(200).json(extractedData);
     } catch (error) {
         console.error("Error in scrapeTweetData:", error);
         res.status(500).json({ error: "Failed to retrieve tweet data" });
