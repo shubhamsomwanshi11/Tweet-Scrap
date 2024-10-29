@@ -2,7 +2,7 @@
 function fetchTweetData(tweetUrl) {
     return new Promise((resolve, reject) => {
         const xhr = new XMLHttpRequest();
-        xhr.open('POST', 'http://localhost:9860/api/getTweet', true);
+        xhr.open('POST', 'https://tweet-scrap.onrender.com/api/getTweet', true);
         xhr.setRequestHeader('Content-Type', 'application/json');
 
         xhr.onreadystatechange = function () {
