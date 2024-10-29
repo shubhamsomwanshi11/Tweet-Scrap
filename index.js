@@ -1,14 +1,15 @@
 const express = require('express');
 const cors = require('cors');
-const app = express();
-const PORT = process.env.PORT || 9860;
 const puppeteer = require('puppeteer');
 
+const app = express();
+const PORT = process.env.PORT || 9860;
 
 // Middleware to parse JSON requests
 app.use(express.json());
 app.use(cors());
 
+// Function to extract fields from the tweet API response
 const extractFields = (data) => {
     const userData = data.data.tweetResult.result.core.user_results.result;
     const tweetData = data.data.tweetResult.result.legacy;
@@ -18,7 +19,7 @@ const extractFields = (data) => {
         time: tweetData.created_at,
         isVerified: userData.is_blue_verified,
         profile_image_url: userData.legacy.profile_image_url_https,
-        media: tweetData.extended_entities.media.map(media => media.media_url_https),
+        media: tweetData.extended_entities?.media.map(media => media.media_url_https) || [],
         hashtags: tweetData.entities?.hashtags || [],
         favorite_count: tweetData.favorite_count,
         full_text: tweetData.full_text,
@@ -32,7 +33,11 @@ const extractFields = (data) => {
 app.post('/api/getTweet', async (req, res) => {
     const tweetUrl = req.body.tweetUrl;
     try {
-        const browser = await puppeteer.launch({ headless: true });
+        // Launch Puppeteer with additional arguments for cloud compatibility
+        const browser = await puppeteer.launch({
+            headless: true,
+            args: ['--no-sandbox', '--disable-setuid-sandbox']
+        });
         const page = await browser.newPage();
 
         await page.setRequestInterception(true);
@@ -55,9 +60,8 @@ app.post('/api/getTweet', async (req, res) => {
                     try {
                         // Capture and parse the response body
                         const tweetAPIResponse = await response.json();
-                        // Send the JSON data as a response
-                        const extractedData = extractFields(tweetAPIResponse);
                         // Send the extracted JSON data as a response
+                        const extractedData = extractFields(tweetAPIResponse);
                         res.status(200).json(extractedData);
                     } catch (error) {
                         console.error('Failed to load response body:', error);
